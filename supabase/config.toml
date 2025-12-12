@@ -1,0 +1,28 @@
+project_id = "jvbgdhqmliqqasoxfrex"
+
+[functions.fetch-stock-price]
+verify_jwt = false
+
+[functions.fetch-stock-news]
+verify_jwt = false
+
+[functions.analyze-sentiment]
+verify_jwt = false
+
+[functions.stock-worker]
+verify_jwt = false
+
+[functions.predict-sentiment]
+verify_jwt = false
+
+[functions.global-sentiment]
+verify_jwt = false
+
+[functions.market-correlation]
+verify_jwt = false
+
+[functions.company-sentiment]
+verify_jwt = false
+
+[functions.sentiment-factors]
+verify_jwt = false
