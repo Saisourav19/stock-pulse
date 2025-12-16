@@ -144,6 +144,7 @@ serve(async (req: Request) => {
 
   try {
     const { symbol } = await req.json();
+    // Updated: Now using OpenAI API key from Supabase secrets
     console.log(`Analyzing sentiment factors for ${symbol}...`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
