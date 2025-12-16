@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-async function fetchLivePrice(symbol: string): Promise<{ price: number; change: number } | null> {
+async function fetchLivePrice(symbol: string): Promise<{ price: number; change: number; currency?: string } | null> {
   const ALPHA_VANTAGE_KEY = Deno.env.get('ALPHA_VANTAGE_KEY');
 
   // 1. Try Alpha Vantage first (Premium)
@@ -43,14 +43,22 @@ async function fetchLivePrice(symbol: string): Promise<{ price: number; change: 
     // 2. Fallback to Yahoo Finance (Reliable but non-premium)
     const sources = [
       `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`,
-      `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`
+      `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`,
+      `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`,
+    ];
+
+    const userAgents = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0'
     ];
 
     for (const url of sources) {
       try {
+        const randomAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
         const response = await fetch(url, {
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': randomAgent,
             'Accept': 'application/json',
           },
           signal: AbortSignal.timeout(8000)
@@ -62,14 +70,24 @@ async function fetchLivePrice(symbol: string): Promise<{ price: number; change: 
         const quote = data.chart?.result?.[0]?.meta;
         const prices = data.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
 
-        if (quote && prices && prices.length > 1) {
-          const currentPrice = quote.regularMarketPrice || prices[prices.length - 1];
-          const previousClose = quote.previousClose || prices[prices.length - 2];
-          const change = previousClose ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
+        if (quote && ((prices && prices.length > 0) || quote.regularMarketPrice)) {
+          let currentPrice = quote.regularMarketPrice;
+
+          if (!currentPrice && prices) {
+            for (let i = prices.length - 1; i >= 0; i--) {
+              if (prices[i]) {
+                currentPrice = prices[i];
+                break;
+              }
+            }
+          }
+
+          const previousClose = quote.chartPreviousClose || quote.previousClose;
+          const change = previousClose && currentPrice ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
 
           if (currentPrice > 0 && !isNaN(currentPrice)) {
             console.log(`[Yahoo Finance] Price for ${symbol}: $${currentPrice.toFixed(2)} (${change > 0 ? '+' : ''}${change.toFixed(2)}%)`);
-            return { price: currentPrice, change };
+            return { price: currentPrice, change, currency: quote.currency };
           }
         }
       } catch (sourceError) {
@@ -330,6 +348,7 @@ Provide a JSON response with ONLY this structure (no markdown, no explanation):
           articles_analyzed: sentimentData.length,
           price_at_prediction: livePrice?.price || null,
           source: prediction.source || 'algorithmic',
+          created_at: new Date().toISOString(),
         });
 
       if (error) throw error;

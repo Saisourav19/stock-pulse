@@ -96,6 +96,7 @@ export default function PredictionAccuracy() {
 
   useEffect(() => {
     fetchAllHistory();
+    triggerAutoVerification();
 
     // Set up real-time subscription for prediction_history table
     const channel = supabase
@@ -118,6 +119,10 @@ export default function PredictionAccuracy() {
     // Auto-refresh every 30 seconds for pending verifications
     const refreshInterval = setInterval(() => {
       fetchAllHistory();
+      // Try to trigger verification every 5 minutes (counter check or just let it be handled by backend logic)
+      if (new Date().getMinutes() % 5 === 0) {
+        triggerAutoVerification();
+      }
     }, 30000);
 
     return () => {
@@ -145,10 +150,28 @@ export default function PredictionAccuracy() {
     }
   };
 
+  const triggerAutoVerification = async () => {
+    try {
+      console.log('Triggering automatic verification...');
+      const { error } = await supabase.functions.invoke('verify-predictions', {
+        body: { force: true }
+      });
+      if (error) console.error('Auto-verification failed:', error);
+      else {
+        console.log('Auto-verification complete');
+        fetchAllHistory();
+      }
+    } catch (err) {
+      console.error('Error in auto-verification:', err);
+    }
+  };
+
   const handleBatchVerify = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase.functions.invoke('verify-predictions');
+      const { data, error } = await supabase.functions.invoke('verify-predictions', {
+        body: { force: true }
+      });
 
       if (error) throw error;
 
@@ -609,7 +632,12 @@ export default function PredictionAccuracy() {
                         )}
                       </td>
                       <td className="py-3 px-2 text-muted-foreground">
-                        {new Date(pred.created_at).toLocaleDateString()}
+                        {pred.created_at ? new Date(pred.created_at).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        }) : <span className="text-muted-foreground italic">Pending</span>}
                       </td>
                     </tr>
                   ))}

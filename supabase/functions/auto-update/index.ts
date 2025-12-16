@@ -7,34 +7,87 @@ const corsHeaders = {
 };
 
 // Fetch live price for a symbol
-async function fetchLivePrice(symbol: string): Promise<{ price: number; change: number } | null> {
+async function fetchLivePrice(symbol: string): Promise<{ price: number; change: number; currency?: string } | null> {
+  const ALPHA_VANTAGE_KEY = Deno.env.get('ALPHA_VANTAGE_KEY');
+
+  if (ALPHA_VANTAGE_KEY) {
+    try {
+      const cleanSymbol = symbol.replace('.NS', '.BSE');
+      const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${cleanSymbol}&apikey=${ALPHA_VANTAGE_KEY}`;
+
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data['Global Quote']) {
+        const quote = data['Global Quote'];
+        const price = parseFloat(quote['05. price']);
+        const changeStr = quote['10. change percent']?.replace('%', '');
+        const change = parseFloat(changeStr);
+
+        if (!isNaN(price) && !isNaN(change)) {
+          console.log(`AV Price for ${symbol}: ${price} (${change}%)`);
+          return { price, change };
+        }
+      }
+    } catch (e) {
+      console.error('Alpha Vantage verification failed:', e);
+    }
+  }
+
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`;
-    
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-      },
-      signal: AbortSignal.timeout(8000)
-    });
-    
-    if (!response.ok) return null;
-    
-    const data = await response.json();
-    const quote = data.chart?.result?.[0]?.meta;
-    const prices = data.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
-    
-    if (quote && prices && prices.length > 1) {
-      const currentPrice = quote.regularMarketPrice || prices[prices.length - 1];
-      const previousClose = quote.previousClose || prices[prices.length - 2];
-      const change = previousClose ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
-      
-      if (currentPrice > 0 && !isNaN(currentPrice) && isFinite(currentPrice)) {
-        return { price: currentPrice, change };
+    const sources = [
+      `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`,
+      `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`,
+      `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`,
+    ];
+
+    const userAgents = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0'
+    ];
+
+    for (const url of sources) {
+      try {
+        const randomAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': randomAgent,
+            'Accept': 'application/json',
+          },
+          signal: AbortSignal.timeout(8000)
+        });
+
+        if (!response.ok) continue;
+
+        const data = await response.json();
+        const quote = data.chart?.result?.[0]?.meta;
+        const prices = data.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
+
+        if (quote && ((prices && prices.length > 0) || quote.regularMarketPrice)) {
+          let currentPrice = quote.regularMarketPrice;
+
+          if (!currentPrice && prices) {
+            for (let i = prices.length - 1; i >= 0; i--) {
+              if (prices[i]) {
+                currentPrice = prices[i];
+                break;
+              }
+            }
+          }
+
+          const previousClose = quote.chartPreviousClose || quote.previousClose;
+          const change = previousClose && currentPrice ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
+
+          if (currentPrice > 0 && !isNaN(currentPrice)) {
+            return { price: currentPrice, change };
+          }
+        }
+      } catch (sourceError) {
+        continue;
       }
     }
-    
+
     return null;
   } catch (error) {
     console.error(`Error fetching price for ${symbol}:`, error);
@@ -60,10 +113,10 @@ function generatePrediction(symbol: string, avgSentiment: number, trend: number,
   let prediction: 'bullish' | 'bearish' | 'neutral';
   let confidence: number;
   let riskLevel: 'low' | 'medium' | 'high';
-  
+
   // Simple algorithmic prediction based on multiple factors
   const combinedScore = avgSentiment + (trend * 0.5) + (priceChange * 0.3);
-  
+
   if (combinedScore > 0.8) {
     prediction = 'bullish';
     confidence = Math.min(0.9, 0.6 + combinedScore * 0.2);
@@ -77,7 +130,7 @@ function generatePrediction(symbol: string, avgSentiment: number, trend: number,
     confidence = 0.5 + Math.abs(combinedScore) * 0.3;
     riskLevel = 'medium';
   }
-  
+
   return {
     prediction,
     confidence,
@@ -101,7 +154,7 @@ serve(async (req: Request) => {
 
   try {
     console.log('Starting automatic data update...');
-    
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -122,8 +175,8 @@ serve(async (req: Request) => {
     if (!activeSymbols || activeSymbols.length === 0) {
       console.log('No active symbols found for update');
       return new Response(
-        JSON.stringify({ 
-          success: true, 
+        JSON.stringify({
+          success: true,
           message: 'No active symbols to update',
           updated: 0
         }),
@@ -139,7 +192,7 @@ serve(async (req: Request) => {
     for (const symbol of uniqueSymbols as string[]) {
       try {
         console.log(`Processing ${symbol}...`);
-        
+
         // Fetch current price
         const livePrice = await fetchLivePrice(symbol);
         if (!livePrice) {
@@ -149,12 +202,12 @@ serve(async (req: Request) => {
 
         // Fetch recent articles (placeholder)
         const articles = await fetchNewsArticles(symbol);
-        
+
         // Calculate sentiment (simplified)
-        const avgSentiment = articles.length > 0 
+        const avgSentiment = articles.length > 0
           ? articles.reduce((sum: number, article: any) => sum + article.sentiment_score, 0) / articles.length
           : 0;
-        
+
         const trend = livePrice.change / 100; // Convert percentage to decimal
         const priceChange = livePrice.change;
 
@@ -174,6 +227,7 @@ serve(async (req: Request) => {
             articles_analyzed: articles.length,
             price_at_prediction: livePrice.price,
             source: prediction.source,
+            created_at: new Date().toISOString(),
           });
 
         if (insertError) {
@@ -182,15 +236,15 @@ serve(async (req: Request) => {
         }
 
         // Verify old predictions for this symbol
-        const fourHoursAgo = new Date();
-        fourHoursAgo.setHours(fourHoursAgo.getHours() - 4);
-        
+        const twelveHoursAgo = new Date();
+        twelveHoursAgo.setHours(twelveHoursAgo.getHours() - 12);
+
         const { data: oldPredictions } = await supabase
           .from('prediction_history')
           .select('*')
           .eq('symbol', symbol)
           .is('was_accurate', null)
-          .lt('created_at', fourHoursAgo.toISOString())
+          .or(`created_at.lt.${twelveHoursAgo.toISOString()},created_at.is.null`)
           .order('created_at', { ascending: false })
           .limit(5);
 
@@ -198,14 +252,14 @@ serve(async (req: Request) => {
           for (const pred of oldPredictions) {
             const priceAtPrediction = pred.price_at_prediction;
             if (!priceAtPrediction || priceAtPrediction <= 0) continue;
-            
+
             const oldPriceChange = ((livePrice.price - priceAtPrediction) / priceAtPrediction) * 100;
             let actualOutcome: 'bullish' | 'bearish' | 'neutral';
-            
+
             if (oldPriceChange > 1.5) actualOutcome = 'bullish';
             else if (oldPriceChange < -1.5) actualOutcome = 'bearish';
             else actualOutcome = 'neutral';
-            
+
             let wasAccurate = false;
             if (pred.prediction === actualOutcome) {
               wasAccurate = true;
@@ -216,7 +270,7 @@ serve(async (req: Request) => {
             } else if (pred.prediction === 'bearish' && oldPriceChange < -0.8) {
               wasAccurate = true;
             }
-            
+
             await supabase
               .from('prediction_history')
               .update({
@@ -232,7 +286,7 @@ serve(async (req: Request) => {
 
         updatedCount++;
         console.log(`Successfully updated ${symbol}: ${prediction.prediction} (${(prediction.confidence * 100).toFixed(0)}% confidence)`);
-        
+
       } catch (symbolError) {
         console.error(`Error processing ${symbol}:`, symbolError);
         continue;
@@ -242,8 +296,8 @@ serve(async (req: Request) => {
     console.log(`Auto-update completed. Updated ${updatedCount} symbols`);
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         message: 'Automatic data update completed successfully',
         updated: updatedCount,
         total: uniqueSymbols.length,
@@ -254,9 +308,9 @@ serve(async (req: Request) => {
   } catch (error) {
     console.error('Error in automatic update:', error);
     return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
