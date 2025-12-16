@@ -158,17 +158,16 @@ serve(async (req: Request) => {
       fetchMarketData('^GSPC') // S&P 500
     ]);
 
-    // 2. Fetch Real News from DB
+    // 2. Fetch Real News from DB - Get ALL articles for overall market sentiment
     const { data: articles } = await supabase
       .from('articles')
       .select('title, summary, sentiment_label')
-      .eq('symbol', symbol)
       .order('published', { ascending: false })
-      .limit(10);
+      .limit(50); // Increased from 10 to 50 for better market overview
 
     // 3. AI Analysis
     const factors = await getAIAnalysis(
-      symbol || 'NIFTY',
+      'Indian Market', // Using generic market name instead of specific symbol
       { nifty, sensex, global },
       articles || []
     );

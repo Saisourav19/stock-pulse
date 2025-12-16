@@ -68,9 +68,9 @@ export default function SentimentFactors() {
     try {
       if (!loading) setLoading(false);
       console.log('Fetching sentiment factors...', { forceRefresh });
-      
-      const { data, error } = await apiClient.invokeFunction<SentimentFactorsResponse>('sentiment-factors', { 
-        symbol: 'AAPL',
+
+      const { data, error } = await apiClient.invokeFunction<SentimentFactorsResponse>('sentiment-factors', {
+        symbol: 'NIFTY', // Changed from AAPL to analyze Indian market
         timestamp: Date.now(),
         forceRefresh
       });
@@ -86,7 +86,7 @@ export default function SentimentFactors() {
         console.log('Factors data received:', data.data);
         setFactorData(data.data);
         setLastUpdated(new Date());
-        
+
         // Force re-render by updating state
         if (forceRefresh) {
           toast.success('Data refreshed successfully!');
@@ -247,7 +247,7 @@ export default function SentimentFactors() {
                 </p>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-3 gap-4 text-center">
               <div className="stat-card">
                 <div className="text-2xl font-bold text-green-500">
@@ -343,42 +343,41 @@ export default function SentimentFactors() {
           const IconComponent = factorIcons[factor.name] || Activity;
           const isPositive = factor.score >= 60;
           const isNegative = factor.score < 40;
-          
+
           return (
-            <Card 
-              key={factor.name} 
+            <Card
+              key={factor.name}
               className="hover-lift group"
               style={{ animationDelay: `${idx * 50}ms` }}
             >
               <CardContent className="p-5">
                 <div className="flex items-start justify-between mb-4">
-                  <div className={`p-2.5 rounded-xl transition-colors ${
-                    isPositive ? 'bg-green-500/10 text-green-500' :
-                    isNegative ? 'bg-red-500/10 text-red-500' :
-                    'bg-yellow-500/10 text-yellow-500'
-                  }`}>
+                  <div className={`p-2.5 rounded-xl transition-colors ${isPositive ? 'bg-green-500/10 text-green-500' :
+                      isNegative ? 'bg-red-500/10 text-red-500' :
+                        'bg-yellow-500/10 text-yellow-500'
+                    }`}>
                     <IconComponent className="h-5 w-5" />
                   </div>
                   <Badge variant="outline" className={getScoreColor(factor.score)}>
-                    {factor.score >= 60 ? <ArrowUp className="h-3 w-3 mr-1" /> : 
-                     factor.score < 40 ? <ArrowDown className="h-3 w-3 mr-1" /> : null}
+                    {factor.score >= 60 ? <ArrowUp className="h-3 w-3 mr-1" /> :
+                      factor.score < 40 ? <ArrowDown className="h-3 w-3 mr-1" /> : null}
                     {factor.score}
                   </Badge>
                 </div>
-                
+
                 <h3 className="font-semibold mb-2">{factor.name}</h3>
-                
+
                 <div className="mb-3">
-                  <Progress 
-                    value={factor.score} 
+                  <Progress
+                    value={factor.score}
                     className="h-2"
                   />
                 </div>
-                
+
                 <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
                   {factor.impact}
                 </p>
-                
+
                 <div className="pt-3 border-t flex items-center justify-between text-xs text-muted-foreground">
                   <span>{factor.articles} articles</span>
                   <span className={`font-medium ${getScoreColor(factor.score)}`}>
